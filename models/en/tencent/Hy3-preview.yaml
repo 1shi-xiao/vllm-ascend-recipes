@@ -1,0 +1,189 @@
+meta:
+  title: Hy3-preview
+  slug: hy3-preview
+  provider: tencent
+  description: Hy3-preview deployment on Ascend with public checkpoint paths and experimental tutorial baselines.
+  date_added: '2026-10-20'
+  difficulty: advanced
+  hardware:
+    atlas_800_a3: experimental
+model:
+  model_id: tencent/Hy3-preview
+  architecture: moe
+  parameter_count: 295B
+  active_parameters: 21B
+  context_length: 262144
+  modality: text
+  base_args:
+  - --served-model-name
+  - hy3-preview
+  - --tensor-parallel-size
+  - '16'
+  - --speculative-config.method
+  - mtp
+  - --speculative-config.num_speculative_tokens
+  - '1'
+  - --enable-expert-parallel
+  - --enable-ep-weight-filter
+  - --tool-call-parser
+  - hy_v3
+  - --reasoning-parser
+  - hy_v3
+  - --enable-auto-tool-choice
+  - --max-model-len
+  - '32768'
+  - --max-num-seqs
+  - '8'
+  - --host
+  - 0.0.0.0
+  - --port
+  - '8000'
+  base_env:
+    HCCL_OP_EXPANSION_MODE: AIV
+  docker_image:
+    atlas_800_a3: quay.io/ascend/vllm-ascend:nightly-main-a3
+  nightly_required: true
+  install:
+    pip: false
+    docker:
+      command: docker pull quay.io/ascend/vllm-ascend:nightly-main-a3
+      note: All listed hardware configurations are experimental here. No startup, inference, accuracy or performance
+        result has been measured for this migration. The mutable nightly image is a current validation candidate,
+        not a compatibility guarantee. Record its repository digest and package versions before running. Upstream
+        discontinued this model starting with vLLM Ascend v0.30.0 and no longer provides support or fixes. Commands
+        below preserve the v0.23.0 historical tutorial; they may fail on current nightly. A successful local CPU
+        check does not establish runtime support.
+variants:
+  default:
+    precision: bf16
+    description: Tutorial checkpoint; runtime validation pending.
+    vram_minimum_gb: 718
+compatible_strategies:
+- single_node_A3
+hardware_overrides: {}
+strategy_overrides: {}
+guide: ''
+overview: Hy3-preview is Tencent’s 295B-parameter MoE model with 21B active parameters and a separate 3.8B MTP layer.
+  It targets reasoning, coding, instruction following and agent tasks.
+weight_download:
+- weight_version: BF16
+  sources:
+  - source: ModelScope
+    url: https://modelscope.cn/models/Tencent-Hunyuan/Hy3-preview
+    command: |-
+      ```bash
+      pip install modelscope
+      modelscope download --model Tencent-Hunyuan/Hy3-preview --local_dir /models/tencent/Hy3-preview
+      ```
+prerequisites:
+- title: Validation boundary and provenance
+  content: All listed hardware configurations are experimental here. No startup, inference, accuracy or performance
+    result has been measured for this migration. The mutable nightly image is a current validation candidate, not
+    a compatibility guarantee. Record its repository digest and package versions before running. Upstream discontinued
+    this model starting with vLLM Ascend v0.30.0 and no longer provides support or fixes. Commands below preserve
+    the v0.23.0 historical tutorial; they may fail on current nightly. A successful local CPU check does not establish
+    runtime support.
+- title: Dated image provenance
+  content: 'Registry observed on 2026-10-20: `nightly-main-a3` manifest digest `sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`;
+    Linux arm64 platform manifest `sha256:e80e4a75f03562853a503546d3d8ea1e96193fa532b5e30c5ba7f0680f73f1c9`, image
+    created 2026-10-20T00:33:33Z. This is registry provenance only; no layers were downloaded or runtime verified.
+    To freeze the candidate, replace the IMAGE value below with `quay.io/ascend/vllm-ascend@sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`
+    before starting the container. Record the digest actually pulled because the nightly tag can change.'
+- title: Host preparation
+  content: Use an Atlas 800I A3 node with 16 visible 64 GB logical devices (8 dual-die NPUs). Confirm driver, CANN,
+    HCCL and container compatibility using the [installation guide](https://docs.vllm.ai/projects/ascend/en/latest/installation.html).
+    Host CPU governor and sysctl tuning in the source are optional administrator actions and are not run by these
+    commands.
+env_setup:
+  container:
+    A3:
+      content: |-
+        Run on the Linux Ascend host after downloading weights to `/models`. Map the devices reserved for this deployment. For PD, repeat on every node; the same relative checkpoint paths must exist on all nodes.
+
+        ```bash
+        export IMAGE=quay.io/ascend/vllm-ascend:nightly-main-a3
+        devices=()
+        for i in {0..15}; do devices+=(--device "/dev/davinci$i"); done
+        docker run --rm -it --name ascend-recipe --net=host --ipc=host \
+          "${devices[@]}" \
+          --device /dev/davinci_manager --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+          -v /usr/local/dcmi:/usr/local/dcmi \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /etc/ascend_install.info:/etc/ascend_install.info \
+          -v /models:/models -w /models "$IMAGE" bash
+        ```
+scenarios:
+- npu: Atlas 800I A3
+  precision: BF16
+  deployment: Single-Node
+  case: TP16 EP MTP
+  tags:
+  - a3-single
+  strategy: single_node_A3
+  steps:
+  - title: Start the server
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      vllm serve tencent/Hy3-preview \
+        --served-model-name hy3-preview \
+        --tensor-parallel-size 16 \
+        --speculative-config.method mtp \
+        --speculative-config.num_speculative_tokens 1 \
+        --enable-expert-parallel \
+        --enable-ep-weight-filter \
+        --tool-call-parser hy_v3 \
+        --reasoning-parser hy_v3 \
+        --enable-auto-tool-choice \
+        --max-model-len 32768 \
+        --max-num-seqs 8 \
+        --host 0.0.0.0 \
+        --port 8000
+      ```
+  - title: Check readiness and run inference
+    content: |-
+      Run in a second terminal inside the same container. `/v1/models` checks readiness; the following request must return a non-empty response.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"hy3-preview","max_tokens":16,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}],"top_p":1,"chat_template_kwargs":{"reasoning_effort":"no_think"}}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+performance:
+  accuracy: Not measured. Follow [AISBench accuracy evaluation](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html)
+    with a recorded dataset revision, generation settings and checkpoint revision. A smoke response is not accuracy
+    evidence.
+  benchmark: Not measured. Use [vLLM benchmarking](https://docs.vllm.ai/en/latest/benchmarking/) or [AISBench performance
+    evaluation](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html#execute-performance-evaluation).
+    Save request count, successful count, input/output lengths, concurrency, TTFT, TPOT and throughput separately
+    from readiness evidence.
+references:
+- title: Pinned tutorial baseline
+  url: https://github.com/vllm-project/vllm-ascend/blob/5cb98caaadeff42b5b62b996e34bb2aaa29d20fd/docs/source/tutorials/models/Hy3-preview.md
+- title: Current upstream tutorial / support status
+  url: https://github.com/vllm-project/vllm-ascend/blob/128f35ed1461ecb34bc8b87583a67a66bc4bd1d6/docs/source/tutorials/models/Hy3-preview.md
+- title: Official model card
+  url: https://huggingface.co/tencent/Hy3-preview
+- title: Public image registry
+  url: https://quay.io/repository/ascend/vllm-ascend?tab=tags
+features:
+  spec_decoding:
+    label: MTP
+    args:
+    - --speculative-config.method
+    - mtp
+    - --speculative-config.num_speculative_tokens
+    - '1'
+  expert_parallel:
+    label: EP
+    args:
+    - --enable-expert-parallel
+tuning: 'The official config declares 262144 context tokens, while the historical serving baseline uses 32768 and
+  8 concurrent sequences. MTP predicts one token; retain EP weight filtering and hy_v3 parsers. BF16 weight estimate
+  includes the separate 3.8B MTP layer: ceil((295+3.8) × 2 × 1.2) = 718 GB, excluding KV/runtime. This is not a
+  measured allocation. Historical reported benchmark numbers are not results of this migration.'

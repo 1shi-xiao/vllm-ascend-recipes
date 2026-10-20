@@ -1,0 +1,171 @@
+meta:
+  title: Hy3-preview
+  slug: hy3-preview
+  provider: tencent
+  description: Hy3-preview 昇腾部署：公开权重路径与实验性教程基线。
+  date_added: '2026-10-20'
+  difficulty: advanced
+  hardware:
+    atlas_800_a3: experimental
+model:
+  model_id: tencent/Hy3-preview
+  architecture: moe
+  parameter_count: 295B
+  active_parameters: 21B
+  context_length: 262144
+  modality: text
+  base_args:
+  - --served-model-name
+  - hy3-preview
+  - --tensor-parallel-size
+  - '16'
+  - --speculative-config.method
+  - mtp
+  - --speculative-config.num_speculative_tokens
+  - '1'
+  - --enable-expert-parallel
+  - --enable-ep-weight-filter
+  - --tool-call-parser
+  - hy_v3
+  - --reasoning-parser
+  - hy_v3
+  - --enable-auto-tool-choice
+  - --max-model-len
+  - '32768'
+  - --max-num-seqs
+  - '8'
+  - --host
+  - 0.0.0.0
+  - --port
+  - '8000'
+  base_env:
+    HCCL_OP_EXPANSION_MODE: AIV
+  docker_image:
+    atlas_800_a3: quay.io/ascend/vllm-ascend:nightly-main-a3
+  nightly_required: true
+  install:
+    pip: false
+    docker:
+      command: docker pull quay.io/ascend/vllm-ascend:nightly-main-a3
+      note: 本迁移列出的硬件配置均为实验状态，尚未实测启动、推理、精度或性能。可变 nightly 镜像仅作为当前验证候选，不代表兼容性保证；运行前请记录仓库摘要和软件包版本。上游从 vLLM Ascend v0.30.0
+        起停止支持该模型及后续修复。以下命令保留 v0.23.0 历史教程基线，可能无法在当前 nightly 运行；本地 CPU 检查通过不代表运行时支持。
+variants:
+  default:
+    precision: bf16
+    description: 教程权重，等待运行时验证。
+    vram_minimum_gb: 718
+compatible_strategies:
+- single_node_A3
+hardware_overrides: {}
+strategy_overrides: {}
+guide: ''
+overview: Hy3-preview 是腾讯的 MoE 模型，具有 295B 总参数、21B 激活参数及单独的 3.8B MTP 层，面向推理、编程、指令遵循与智能体任务。
+weight_download:
+- weight_version: BF16
+  sources:
+  - source: ModelScope
+    url: https://modelscope.cn/models/Tencent-Hunyuan/Hy3-preview
+    command: |-
+      ```bash
+      pip install modelscope
+      modelscope download --model Tencent-Hunyuan/Hy3-preview --local_dir /models/tencent/Hy3-preview
+      ```
+prerequisites:
+- title: 验证边界与来源
+  content: 本迁移列出的硬件配置均为实验状态，尚未实测启动、推理、精度或性能。可变 nightly 镜像仅作为当前验证候选，不代表兼容性保证；运行前请记录仓库摘要和软件包版本。上游从 vLLM Ascend v0.30.0
+    起停止支持该模型及后续修复。以下命令保留 v0.23.0 历史教程基线，可能无法在当前 nightly 运行；本地 CPU 检查通过不代表运行时支持。
+- title: 带日期的镜像来源
+  content: 2026-10-20 查询镜像仓库：`nightly-main-a3` 清单摘要为 `sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`；Linux
+    arm64 平台清单为 `sha256:e80e4a75f03562853a503546d3d8ea1e96193fa532b5e30c5ba7f0680f73f1c9`，镜像创建于 2026-10-20T00:33:33Z。这仅属于仓库来源证据，未下载镜像层或验证运行时。需要固定候选镜像时，请在启动容器前，将下方
+    IMAGE 值改为 `quay.io/ascend/vllm-ascend@sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`。nightly
+    标签会变化，请记录实际拉取的摘要。
+- title: 主机准备
+  content: 使用具有 16 个可见 64 GB 逻辑设备（8 个双芯片 NPU）的 Atlas 800I A3 节点。按照[安装指南](https://docs.vllm.ai/projects/ascend/en/latest/installation.html)确认驱动、CANN、HCCL
+    与容器兼容性。源文档中的 CPU 调频与 sysctl 调优属于可选管理员操作，以下命令不会自动执行。
+env_setup:
+  container:
+    A3:
+      content: |-
+        在 Linux 昇腾主机上执行，先将权重下载到 `/models`。映射本次部署预留的设备。PD 场景在每个节点执行，各节点必须具有相同的权重相对路径。
+
+        ```bash
+        export IMAGE=quay.io/ascend/vllm-ascend:nightly-main-a3
+        devices=()
+        for i in {0..15}; do devices+=(--device "/dev/davinci$i"); done
+        docker run --rm -it --name ascend-recipe --net=host --ipc=host \
+          "${devices[@]}" \
+          --device /dev/davinci_manager --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+          -v /usr/local/dcmi:/usr/local/dcmi \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /etc/ascend_install.info:/etc/ascend_install.info \
+          -v /models:/models -w /models "$IMAGE" bash
+        ```
+scenarios:
+- npu: Atlas 800I A3
+  precision: BF16
+  deployment: 单节点
+  case: TP16 EP MTP
+  tags:
+  - a3-single
+  strategy: single_node_A3
+  steps:
+  - title: 启动服务
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      vllm serve tencent/Hy3-preview \
+        --served-model-name hy3-preview \
+        --tensor-parallel-size 16 \
+        --speculative-config.method mtp \
+        --speculative-config.num_speculative_tokens 1 \
+        --enable-expert-parallel \
+        --enable-ep-weight-filter \
+        --tool-call-parser hy_v3 \
+        --reasoning-parser hy_v3 \
+        --enable-auto-tool-choice \
+        --max-model-len 32768 \
+        --max-num-seqs 8 \
+        --host 0.0.0.0 \
+        --port 8000
+      ```
+  - title: 检查就绪并执行推理
+    content: |-
+      在同一容器的第二个终端中执行。`/v1/models` 仅检查就绪，后续请求必须返回非空响应。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"hy3-preview","max_tokens":16,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}],"top_p":1,"chat_template_kwargs":{"reasoning_effort":"no_think"}}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+performance:
+  accuracy: 尚未测量。按照 [AISBench 精度评估](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html)记录数据集版本、生成参数及权重版本。冒烟响应不能作为精度证据。
+  benchmark: 尚未测量。使用 [vLLM 基准测试](https://docs.vllm.ai/en/latest/benchmarking/)或 [AISBench 性能评估](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html#execute-performance-evaluation)，单独保存请求数、成功数、输入输出长度、并发、TTFT、TPOT
+    和吞吐量，与就绪证据区分。
+references:
+- title: 固定版本教程基线
+  url: https://github.com/vllm-project/vllm-ascend/blob/5cb98caaadeff42b5b62b996e34bb2aaa29d20fd/docs/source/tutorials/models/Hy3-preview.md
+- title: 当前上游教程与支持状态
+  url: https://github.com/vllm-project/vllm-ascend/blob/128f35ed1461ecb34bc8b87583a67a66bc4bd1d6/docs/source/tutorials/models/Hy3-preview.md
+- title: 官方模型卡
+  url: https://huggingface.co/tencent/Hy3-preview
+- title: 公开镜像仓库
+  url: https://quay.io/repository/ascend/vllm-ascend?tab=tags
+features:
+  spec_decoding:
+    label: MTP
+    args:
+    - --speculative-config.method
+    - mtp
+    - --speculative-config.num_speculative_tokens
+    - '1'
+  expert_parallel:
+    label: EP
+    args:
+    - --enable-expert-parallel
+tuning: 官方配置声明上下文为 262144，历史服务基线使用 32768 和 8 个并发序列。MTP 预测 1 个 token，保留 EP 权重过滤及 hy_v3 解析器。BF16 权重显存估算包含单独的 3.8B
+  MTP 层：ceil((295+3.8) × 2 × 1.2) = 718 GB，不含 KV 缓存与运行时，也不是实测值。历史教程中的性能数字不属于本次迁移结果。
