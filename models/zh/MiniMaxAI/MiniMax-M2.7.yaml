@@ -1,0 +1,1311 @@
+meta:
+  title: MiniMax-M2.7
+  slug: minimax-m2.7
+  provider: MiniMaxAI
+  description: MiniMax-M2.7 昇腾部署：公开权重路径与实验性教程基线。
+  date_added: '2026-10-20'
+  difficulty: advanced
+  hardware:
+    atlas_800_a3: experimental
+    atlas_800_a2: experimental
+model:
+  model_id: MiniMaxAI/MiniMax-M2.7
+  architecture: moe
+  parameter_count: 230B
+  active_parameters: 10B
+  context_length: 204800
+  modality: text
+  base_args:
+  - --trust-remote-code
+  base_env: {}
+  docker_image:
+    atlas_800_a3: quay.io/ascend/vllm-ascend:nightly-main-a3
+    atlas_800_a2: quay.io/ascend/vllm-ascend:nightly-main
+  nightly_required: true
+  install:
+    pip: false
+    docker:
+      command: docker pull quay.io/ascend/vllm-ascend:nightly-main-a3
+      note: 本迁移列出的硬件配置均为实验状态，尚未实测启动、推理、精度或性能。可变 nightly 镜像仅作为当前验证候选，不代表兼容性保证；运行前请记录仓库摘要和软件包版本。上游从 vLLM Ascend v0.30.0
+        起停止支持该模型及后续修复。以下命令保留 v0.23.0 历史教程基线，可能无法在当前 nightly 运行；本地 CPU 检查通过不代表运行时支持。
+variants:
+  default:
+    precision: W8A8
+    description: 教程权重，等待运行时验证。
+    model_id: vllm-ascend/MiniMax-M2.7-w8a8-QuaRot
+    vram_minimum_gb: 276
+compatible_strategies:
+- single_node_A3
+- single_node_A2
+- pd_cluster
+hardware_overrides: {}
+strategy_overrides:
+  pd_cluster:
+    prefill:
+      nodes:
+        default: 1
+    decode:
+      nodes:
+        default: 1
+guide: ''
+overview: MiniMax-M2.7 是稀疏 MoE 语言模型，总参数约 230B、激活参数约 10B，面向软件工程、工具调用与智能体工作流。
+weight_download:
+- weight_version: W8A8
+  sources:
+  - source: ModelScope
+    url: https://modelscope.cn/models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot
+    command: |-
+      ```bash
+      pip install modelscope
+      modelscope download --model vllm-ascend/MiniMax-M2.7-w8a8-QuaRot --local_dir /models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot
+      ```
+- weight_version: EAGLE3
+  sources:
+  - source: ModelScope
+    url: https://modelscope.cn/models/Eco-Tech/MiniMax-M2.7-eagle-model-short
+    command: |-
+      ```bash
+      pip install modelscope
+      modelscope download --model Eco-Tech/MiniMax-M2.7-eagle-model-short --local_dir /models/Eco-Tech/MiniMax-M2.7-eagle-model-short
+      ```
+prerequisites:
+- title: 验证边界与来源
+  content: 本迁移列出的硬件配置均为实验状态，尚未实测启动、推理、精度或性能。可变 nightly 镜像仅作为当前验证候选，不代表兼容性保证；运行前请记录仓库摘要和软件包版本。上游从 vLLM Ascend v0.30.0
+    起停止支持该模型及后续修复。以下命令保留 v0.23.0 历史教程基线，可能无法在当前 nightly 运行；本地 CPU 检查通过不代表运行时支持。
+- title: 带日期的镜像来源
+  content: 2026-10-20 查询镜像仓库：`nightly-main-a3` 清单摘要为 `sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`；Linux
+    arm64 平台清单为 `sha256:e80e4a75f03562853a503546d3d8ea1e96193fa532b5e30c5ba7f0680f73f1c9`，镜像创建于 2026-10-20T00:33:33Z。这仅属于仓库来源证据，未下载镜像层或验证运行时。需要固定候选镜像时，请在启动容器前，将下方
+    IMAGE 值改为 `quay.io/ascend/vllm-ascend@sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`。nightly
+    标签会变化，请记录实际拉取的摘要。同次仓库查询返回 A2 `nightly-main` 清单 `sha256:7399d0a2b38d8a85d489116afa585e8702a2ba86ff1d5f4570df0b36c38096d3`；其平台与运行时兼容性尚未验证。
+- title: 主机准备
+  content: 使用具有 16 个可见 64 GB 逻辑设备（8 个双芯片 NPU）的 Atlas 800I A3 节点。按照[安装指南](https://docs.vllm.ai/projects/ascend/en/latest/installation.html)确认驱动、CANN、HCCL
+    与容器兼容性。源文档中的 CPU 调频与 sysctl 调优属于可选管理员操作，以下命令不会自动执行。
+- title: A2 与可选 PD 硬件
+  content: A2 单节点需要 8 个 64 GB 设备。1p1d 基线使用 2 个 A3 节点，每节点 16 个逻辑设备。3 个 1p2d 场景保留源表覆盖，需要 3 个 A3 节点；它们属于可选场景，不是双节点任务的前提。A2
+    仅使用 A2 镜像，其兼容性也尚未验证。每个参与节点都需挂载 EAGLE3 权重。历史源文档不支持 C8 量化与 EAGLE3 组合，以下命令使用 W8A8，不使用 W8A8C8。
+- title: 在每个节点准备公开 PD 辅助脚本
+  content: |-
+    内嵌启动器修复历史教程在启动循环内逐进程 join 的问题，并传递工作进程失败状态；先启动全部本地 rank 再轮询，仅清理自己创建的进程组。代理从同一不可变教程版本下载，其源码声明 fastapi<0.124.0、httpx、uvicorn 和 vllm，请先检查已安装环境。检查失败时应停止并核对所选镜像的依赖兼容性，不要直接升级或替换镜像内的 vLLM。辅助脚本仅经过 CPU 检查。
+
+    ```bash
+    python -c 'import fastapi, httpx, uvicorn; from packaging.version import Version; assert Version(fastapi.__version__) < Version("0.124.0"), "Historical proxy requires fastapi<0.124.0"; print("Proxy dependencies available")'
+    mkdir -p /workspace/recipe-helpers/examples/external_online_dp /workspace/recipe-helpers/examples/disaggregated_prefill_v1
+    cat > /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py <<'PY'
+    import argparse
+    import os
+    import signal
+    import subprocess
+    import time
+
+    parser = argparse.ArgumentParser()
+    for key in ("dp-size", "tp-size", "dp-size-local", "dp-rank-start", "dp-rpc-port", "vllm-start-port"):
+        parser.add_argument("--" + key, type=int, required=True)
+    parser.add_argument("--dp-address", required=True)
+    args = parser.parse_args()
+    assert args.dp_size_local > 0 and args.tp_size > 0
+    assert args.dp_rank_start + args.dp_size_local <= args.dp_size
+    processes = []
+    def stop(signum, frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        for i in range(args.dp_size_local):
+            devices = ",".join(str(x) for x in range(i * args.tp_size, (i + 1) * args.tp_size))
+            command = ["bash", "./run_dp_template.sh", devices, str(args.vllm_start_port + i),
+                       str(args.dp_size), str(args.dp_rank_start + i), args.dp_address,
+                       str(args.dp_rpc_port), str(args.tp_size)]
+            processes.append(subprocess.Popen(command, start_new_session=True))
+        while True:
+            codes = [process.poll() for process in processes]
+            failure = next((code for code in codes if code not in (None, 0)), None)
+            if failure is not None:
+                raise SystemExit(failure if failure > 0 else 1)
+            if all(code is not None for code in codes):
+                break
+            time.sleep(0.1)
+        codes = [process.wait() for process in processes]
+        raise SystemExit(next((code if code > 0 else 1 for code in codes if code), 0))
+    finally:
+        # Ignore repeated termination while cleaning up only groups created above.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        for process in processes:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + 10
+        for process in processes:
+            try:
+                process.wait(timeout=max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                pass
+        for process in processes:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        for process in processes:
+            if process.poll() is None:
+                process.wait()
+    PY
+    curl --fail --location --output /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+      https://raw.githubusercontent.com/vllm-project/vllm-ascend/5cb98caaadeff42b5b62b996e34bb2aaa29d20fd/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py
+    ```
+env_setup:
+  container:
+    A3:
+      content: |-
+        在 Linux 昇腾主机上执行，先将权重下载到 `/models`。映射本次部署预留的设备。PD 场景在每个节点执行，各节点必须具有相同的权重相对路径。
+
+        ```bash
+        export IMAGE=quay.io/ascend/vllm-ascend:nightly-main-a3
+        devices=()
+        for i in {0..15}; do devices+=(--device "/dev/davinci$i"); done
+        docker run --rm -it --name ascend-recipe --net=host --ipc=host \
+          "${devices[@]}" \
+          --device /dev/davinci_manager --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+          -v /usr/local/dcmi:/usr/local/dcmi \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /etc/ascend_install.info:/etc/ascend_install.info \
+          -v /models:/models -w /models "$IMAGE" bash
+        ```
+    A2:
+      content: |-
+        在 Linux 昇腾主机上执行，先将权重下载到 `/models`。映射本次部署预留的设备。PD 场景在每个节点执行，各节点必须具有相同的权重相对路径。
+
+        ```bash
+        export IMAGE=quay.io/ascend/vllm-ascend:nightly-main
+        devices=()
+        for i in {0..7}; do devices+=(--device "/dev/davinci$i"); done
+        docker run --rm -it --name ascend-recipe --net=host --ipc=host \
+          "${devices[@]}" \
+          --device /dev/davinci_manager --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+          -v /usr/local/dcmi:/usr/local/dcmi \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /etc/ascend_install.info:/etc/ascend_install.info \
+          -v /models:/models -w /models "$IMAGE" bash
+        ```
+scenarios:
+- npu: Atlas 800I A3
+  precision: W8A8
+  deployment: 单节点
+  case: 短上下文 TP4 DP4 EP
+  tags:
+  - a3-single
+  strategy: single_node_A3
+  steps:
+  - title: 启动服务
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export VLLM_ASCEND_BALANCE_SCHEDULING=0
+      vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --served-model-name MiniMax-M2.7 \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --trust-remote-code \
+        --quantization ascend \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --async-scheduling \
+        --additional-config '{"enable_cpu_binding":true,"enable_fused_mc2":true,"enable_flashcomm1":true,"weight_nz_mode":true}' \
+        --enable-expert-parallel \
+        --tensor-parallel-size 4 \
+        --data-parallel-size 4 \
+        --max-num-seqs 48 \
+        --max-model-len 40690 \
+        --max-num-batched-tokens 16384 \
+        --gpu-memory-utilization 0.85 \
+        --speculative-config '{"enforce_eager":true,"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --enable-auto-tool-choice \
+        --tool-call-parser minimax_m2 \
+        --reasoning-parser minimax_m2_append_think
+      ```
+  - title: 检查就绪并执行推理
+    content: |-
+      在同一容器的第二个终端中执行。`/v1/models` 仅检查就绪，后续请求必须返回非空响应。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}]}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+  - title: 验证工具调用
+    content: |-
+      单节点服务的工具调用检查（不会执行天气 API）：
+
+      ```bash
+      set -euo pipefail
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","messages":[{"role":"user","content":"请查询上海的天气。"}],"tools":[{"type":"function","function":{"name":"get_current_weather","description":"Get weather by city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}],"tool_choice":"auto","temperature":0,"max_tokens":512}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"][0]["message"]["tool_calls"]' <<<"$response"
+      ```
+- npu: Atlas 800I A3
+  precision: W8A8
+  deployment: 单节点
+  case: 长上下文 TP8 PCP2
+  tags:
+  - a3-single
+  strategy: single_node_A3
+  steps:
+  - title: 启动服务
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export VLLM_ASCEND_BALANCE_SCHEDULING=0
+      vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --served-model-name MiniMax-M2.7 \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --trust-remote-code \
+        --quantization ascend \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --async-scheduling \
+        --additional-config '{"enable_cpu_binding":true,"enable_fused_mc2":true,"enable_flashcomm1":true,"weight_nz_mode":true}' \
+        --enable-expert-parallel \
+        --tensor-parallel-size 8 \
+        --data-parallel-size 1 \
+        --decode-context-parallel-size 1 \
+        --prefill-context-parallel-size 2 \
+        --cp-kv-cache-interleave-size 128 \
+        --max-num-seqs 16 \
+        --max-model-len 138000 \
+        --max-num-batched-tokens 65536 \
+        --gpu-memory-utilization 0.85 \
+        --speculative-config '{"enforce_eager":true,"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":1}' \
+        --enable-auto-tool-choice \
+        --tool-call-parser minimax_m2 \
+        --reasoning-parser minimax_m2_append_think
+      ```
+  - title: 检查就绪并执行推理
+    content: |-
+      在同一容器的第二个终端中执行。`/v1/models` 仅检查就绪，后续请求必须返回非空响应。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}]}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+  - title: 验证工具调用
+    content: |-
+      单节点服务的工具调用检查（不会执行天气 API）：
+
+      ```bash
+      set -euo pipefail
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","messages":[{"role":"user","content":"请查询上海的天气。"}],"tools":[{"type":"function","function":{"name":"get_current_weather","description":"Get weather by city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}],"tool_choice":"auto","temperature":0,"max_tokens":512}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"][0]["message"]["tool_calls"]' <<<"$response"
+      ```
+- npu: Atlas 800I A2
+  precision: W8A8
+  deployment: 单节点
+  case: TP8 EP
+  tags:
+  - a2-single
+  strategy: single_node_A2
+  steps:
+  - title: 启动服务
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=512
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_INTRA_PCIE_ENABLE=1
+      export HCCL_INTRA_ROCE_ENABLE=0
+      export OMP_PROC_BIND=false
+      vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --served-model-name MiniMax-M2.7 \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --trust-remote-code \
+        --tensor-parallel-size 8 \
+        --quantization ascend \
+        --enable-expert-parallel \
+        --max-num-seqs 32 \
+        --seed 1024 \
+        --max-num-batched-tokens 32768 \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --gpu-memory-utilization 0.85 \
+        --additional-config '{"enable_cpu_binding":true,"enable_flashcomm1":true}' \
+        --model-loader-extra-config '{"enable_multithread_load":true,"num_threads":16}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --enable-auto-tool-choice \
+        --tool-call-parser minimax_m2 \
+        --reasoning-parser minimax_m2_append_think
+      ```
+  - title: 检查就绪并执行推理
+    content: |-
+      在同一容器的第二个终端中执行。`/v1/models` 仅检查就绪，后续请求必须返回非空响应。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}]}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+  - title: 验证工具调用
+    content: |-
+      单节点服务的工具调用检查（不会执行天气 API）：
+
+      ```bash
+      set -euo pipefail
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","messages":[{"role":"user","content":"请查询上海的天气。"}],"tools":[{"type":"function","function":{"name":"get_current_weather","description":"Get weather by city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}],"tool_choice":"auto","temperature":0,"max_tokens":512}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"][0]["message"]["tool_calls"]' <<<"$response"
+      ```
+- test_id: minimax-long-1p1d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: 多节点 PD 分离
+  case: long-1p1d
+  npu_per_node: 16
+  steps:
+  - title: 拓扑与通信
+    content: |-
+      2 个 A3 节点，完整保留源文档 5.2 节长上下文 1p1d 可执行基线。Prefill 使用 EAGLE3=1 和 eager，Decode 使用 EAGLE3=3 和图模式。
+
+      在每个节点终端设置以下变量，先检查 HCCL/RDMA 连通性。`IFACE_NAME` 必须是通信网卡，Decode 节点共同使用 Decode 节点 0 作为 DP 主节点。
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 64 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --enforce-eager \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":1}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":2,"tp_size":8}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 2 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=0
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 16 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --no-enable-prefix-caching \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":2,"tp_size":8}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 2 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      从网关检查所有 rank 后再启动代理；此步骤只证明就绪。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      全部 rank 接口就绪后，在网关节点执行：
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" --decoder-ports 7100 7101
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+- test_id: minimax-short-throughput-1p2d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: 多节点 PD 分离
+  case: short-throughput-1p2d
+  npu_per_node: 16
+  steps:
+  - title: 拓扑与通信
+    content: |-
+      可选 3 节点源表场景。DP/TP、并发、上下文和 EAGLE3 数值来自源文档 9.1 节，其余启动设置复用 5.2 节。此组合是尚未实测的表格展开，不能声称为源文档已完整验证的命令。双节点任务不要求第三个节点。
+
+      在每个节点终端设置以下变量，先检查 HCCL/RDMA 连通性。`IFACE_NAME` 必须是通信网卡，Decode 节点共同使用 Decode 节点 0 作为 DP 主节点。
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export DECODE_NODE_1_IP="<second-decode-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":8,"tp_size":2},"decode":{"dp_size":32,"tp_size":1}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 8 --tp-size 2 --dp-size-local 8 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":8,"tp_size":2},"decode":{"dp_size":32,"tp_size":1}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 32 --tp-size 1 --dp-size-local 16 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: decode-1-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_1_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":8,"tp_size":2},"decode":{"dp_size":32,"tp_size":1}}}'
+      BASH
+      ```
+  - title: decode-1-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 32 --tp-size 1 --dp-size-local 16 --dp-rank-start 16 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      从网关检查所有 rank 后再启动代理；此步骤只证明就绪。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7002/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7003/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7004/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7005/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7006/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7007/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7103/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7104/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7105/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7106/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7107/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7108/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7109/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7110/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7111/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7112/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7113/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7114/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7115/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7103/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7104/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7105/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7106/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7107/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7108/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7109/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7110/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7111/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7112/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7113/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7114/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7115/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      全部 rank 接口就绪后，在网关节点执行：
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 7002 7003 7004 7005 7006 7007 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" --decoder-ports 7100 7101 7102 7103 7104 7105 7106 7107 7108 7109 7110 7111 7112 7113 7114 7115 7100 7101 7102 7103 7104 7105 7106 7107 7108 7109 7110 7111 7112 7113 7114 7115
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+- test_id: minimax-short-latency-1p2d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: 多节点 PD 分离
+  case: short-latency-1p2d
+  npu_per_node: 16
+  steps:
+  - title: 拓扑与通信
+    content: |-
+      可选 3 节点源表场景。DP/TP、并发、上下文和 EAGLE3 数值来自源文档 9.1 节，其余启动设置复用 5.2 节。此组合是尚未实测的表格展开，不能声称为源文档已完整验证的命令。双节点任务不要求第三个节点。
+
+      在每个节点终端设置以下变量，先检查 HCCL/RDMA 连通性。`IFACE_NAME` 必须是通信网卡，Decode 节点共同使用 Decode 节点 0 作为 DP 主节点。
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export DECODE_NODE_1_IP="<second-decode-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":4,"tp_size":4},"decode":{"dp_size":8,"tp_size":4}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 4 --tp-size 4 --dp-size-local 4 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":4,"tp_size":4},"decode":{"dp_size":8,"tp_size":4}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 8 --tp-size 4 --dp-size-local 4 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: decode-1-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_1_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":4,"tp_size":4},"decode":{"dp_size":8,"tp_size":4}}}'
+      BASH
+      ```
+  - title: decode-1-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 8 --tp-size 4 --dp-size-local 4 --dp-rank-start 4 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      从网关检查所有 rank 后再启动代理；此步骤只证明就绪。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7002/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7003/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7103/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7103/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      全部 rank 接口就绪后，在网关节点执行：
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 7002 7003 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" --decoder-ports 7100 7101 7102 7103 7100 7101 7102 7103
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+- test_id: minimax-long-latency-1p2d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: 多节点 PD 分离
+  case: long-latency-1p2d
+  npu_per_node: 16
+  steps:
+  - title: 拓扑与通信
+    content: |-
+      可选 3 节点源表场景。DP/TP、并发、上下文和 EAGLE3 数值来自源文档 9.1 节，其余启动设置复用 5.2 节。此组合是尚未实测的表格展开，不能声称为源文档已完整验证的命令。双节点任务不要求第三个节点。
+
+      在每个节点终端设置以下变量，先检查 HCCL/RDMA 连通性。`IFACE_NAME` 必须是通信网卡，Decode 节点共同使用 Decode 节点 0 作为 DP 主节点。
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export DECODE_NODE_1_IP="<second-decode-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 64 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":4,"tp_size":8}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 2 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 16 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":4,"tp_size":8}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 4 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: decode-1-template
+    content: |-
+      在对应角色和节点上，将以下完整脚本保存为 `/models/run_dp_template.sh`，不同角色使用不同节点。
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_1_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 16 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":4,"tp_size":8}}}'
+      BASH
+      ```
+  - title: decode-1-launch
+    content: |-
+      在对应节点的独立终端启动此命令，并保持运行，再启动其余节点。
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 4 --tp-size 8 --dp-size-local 2 --dp-rank-start 2 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      从网关检查所有 rank 后再启动代理；此步骤只证明就绪。
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7101/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      全部 rank 接口就绪后，在网关节点执行：
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" --decoder-ports 7100 7101 7100 7101
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+performance:
+  accuracy: 尚未测量。按照 [AISBench 精度评估](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html)记录数据集版本、生成参数及权重版本。冒烟响应不能作为精度证据。
+  benchmark: |-
+    尚未测量。使用 [vLLM 基准测试](https://docs.vllm.ai/en/latest/benchmarking/)或 [AISBench 性能评估](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html#execute-performance-evaluation)，单独保存请求数、成功数、输入输出长度、并发、TTFT、TPOT 和吞吐量，与就绪证据区分。
+
+    源文档的单节点轻量文本基准测试；请单独保存结果并检查成功请求数：
+
+    ```bash
+    vllm bench serve \
+      --backend openai-chat --base-url http://127.0.0.1:8000 --endpoint /v1/chat/completions \
+      --model /models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot --served-model-name MiniMax-M2.7 \
+      --dataset-name random --random-input-len 200 --num-prompts 200 --request-rate 1 \
+      --save-result --result-dir ./minimax-benchmark-results
+    ```
+references:
+- title: 固定版本教程基线
+  url: https://github.com/vllm-project/vllm-ascend/blob/5cb98caaadeff42b5b62b996e34bb2aaa29d20fd/docs/source/tutorials/models/MiniMax-M2.md
+- title: 当前上游教程与支持状态
+  url: https://github.com/vllm-project/vllm-ascend/blob/128f35ed1461ecb34bc8b87583a67a66bc4bd1d6/docs/source/tutorials/models/MiniMax-M2.md
+- title: 官方模型卡
+  url: https://huggingface.co/MiniMaxAI/MiniMax-M2.7
+- title: 公开镜像仓库
+  url: https://quay.io/repository/ascend/vllm-ascend?tab=tags
+- title: 上游 MiniMax 元数据（230B / 10B）
+  url: https://github.com/vllm-project/recipes/blob/9882c1c7994c78093a85f35f3534f691a698785c/models/MiniMaxAI/MiniMax-M2.7.yaml
+- title: W8A8 QuaRot config
+  url: https://modelscope.cn/models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot/files
+- title: EAGLE3
+  url: https://modelscope.cn/models/Eco-Tech/MiniMax-M2.7-eagle-model-short
+verification: 单节点请求使用 8000 端口及 `MiniMax-M2.7`。PD 请求使用代理 8009 端口及源别名 `minimax`，不要在代理上复用单节点别名。步骤分别检查就绪和真实推理。单节点启动命令均包含教程可选的
+  minimax_m2 解析器，以便测试工具调用。`minimax_m2_append_think` 将思考文本保留在 content；需要单独 reasoning 字段时可改用 minimax_m2。
+tuning: 源文档 5.1 节：A3 短上下文为 TP4 DP4、40690 上下文、48 并发、16384 批次 token；长上下文为 TP8 DP1 PCP2、138000 上下文、16 并发、65536 批次 token。A2
+  为 TP8、32 并发、32768 批次 token，按源文档保留省略 max-model-len。量化配置声明最大位置为 204800，未替换为上游基础配方的 196608。9.1 节表中 32k/200k 在此展开为
+  32768/200000，短上下文可执行源命令仍为 40690。长 PD 测试假设 90% 前缀命中，短 PD 为 0%；这些是工作负载条件，不是实测结果。1p1d 源表列 EAGLE3=3，但可执行 Prefill 使用
+  1，本配方以可执行命令为准。将 `--speculative_config` 规范为连字符写法，JSON 不变。276 GB 权重估算不含 EAGLE3、KV 和运行时。
+faq: |-
+  当前转换器 CLI 未注册本配方。其生成的 PD 模板假设 TP1 单设备索引，多 Decode 启动器使用节点本地 DP 地址，不适用于源场景 TP2/4/8 设备列表与共享 Decode DP 主节点。请使用上述完整内嵌脚本直接启动。结构校验通过不代表生成计划可执行，也不代表硬件验证通过。
+
+  集群环境面板描述默认双节点 1p1d 拓扑，无法按场景展示不同的 Decode 节点数。可选 1p2d 请使用步骤中的三节点变量与编号命令，包括 DECODE_NODE_1_IP；该面板不能作为完整三节点配置。

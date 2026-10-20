@@ -1,0 +1,1337 @@
+meta:
+  title: MiniMax-M2.7
+  slug: minimax-m2.7
+  provider: MiniMaxAI
+  description: MiniMax-M2.7 deployment on Ascend with public checkpoint paths and experimental tutorial baselines.
+  date_added: '2026-10-20'
+  difficulty: advanced
+  hardware:
+    atlas_800_a3: experimental
+    atlas_800_a2: experimental
+model:
+  model_id: MiniMaxAI/MiniMax-M2.7
+  architecture: moe
+  parameter_count: 230B
+  active_parameters: 10B
+  context_length: 204800
+  modality: text
+  base_args:
+  - --trust-remote-code
+  base_env: {}
+  docker_image:
+    atlas_800_a3: quay.io/ascend/vllm-ascend:nightly-main-a3
+    atlas_800_a2: quay.io/ascend/vllm-ascend:nightly-main
+  nightly_required: true
+  install:
+    pip: false
+    docker:
+      command: docker pull quay.io/ascend/vllm-ascend:nightly-main-a3
+      note: All listed hardware configurations are experimental here. No startup, inference, accuracy or performance
+        result has been measured for this migration. The mutable nightly image is a current validation candidate,
+        not a compatibility guarantee. Record its repository digest and package versions before running. Upstream
+        discontinued this model starting with vLLM Ascend v0.30.0 and no longer provides support or fixes. Commands
+        below preserve the v0.23.0 historical tutorial; they may fail on current nightly. A successful local CPU
+        check does not establish runtime support.
+variants:
+  default:
+    precision: W8A8
+    description: Tutorial checkpoint; runtime validation pending.
+    model_id: vllm-ascend/MiniMax-M2.7-w8a8-QuaRot
+    vram_minimum_gb: 276
+compatible_strategies:
+- single_node_A3
+- single_node_A2
+- pd_cluster
+hardware_overrides: {}
+strategy_overrides:
+  pd_cluster:
+    prefill:
+      nodes:
+        default: 1
+    decode:
+      nodes:
+        default: 1
+guide: ''
+overview: MiniMax-M2.7 is a sparse MoE language model with about 230B total and 10B active parameters, designed
+  for software engineering, tool calling and agent workflows.
+weight_download:
+- weight_version: W8A8
+  sources:
+  - source: ModelScope
+    url: https://modelscope.cn/models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot
+    command: |-
+      ```bash
+      pip install modelscope
+      modelscope download --model vllm-ascend/MiniMax-M2.7-w8a8-QuaRot --local_dir /models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot
+      ```
+- weight_version: EAGLE3
+  sources:
+  - source: ModelScope
+    url: https://modelscope.cn/models/Eco-Tech/MiniMax-M2.7-eagle-model-short
+    command: |-
+      ```bash
+      pip install modelscope
+      modelscope download --model Eco-Tech/MiniMax-M2.7-eagle-model-short --local_dir /models/Eco-Tech/MiniMax-M2.7-eagle-model-short
+      ```
+prerequisites:
+- title: Validation boundary and provenance
+  content: All listed hardware configurations are experimental here. No startup, inference, accuracy or performance
+    result has been measured for this migration. The mutable nightly image is a current validation candidate, not
+    a compatibility guarantee. Record its repository digest and package versions before running. Upstream discontinued
+    this model starting with vLLM Ascend v0.30.0 and no longer provides support or fixes. Commands below preserve
+    the v0.23.0 historical tutorial; they may fail on current nightly. A successful local CPU check does not establish
+    runtime support.
+- title: Dated image provenance
+  content: 'Registry observed on 2026-10-20: `nightly-main-a3` manifest digest `sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`;
+    Linux arm64 platform manifest `sha256:e80e4a75f03562853a503546d3d8ea1e96193fa532b5e30c5ba7f0680f73f1c9`, image
+    created 2026-10-20T00:33:33Z. This is registry provenance only; no layers were downloaded or runtime verified.
+    To freeze the candidate, replace the IMAGE value below with `quay.io/ascend/vllm-ascend@sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`
+    before starting the container. Record the digest actually pulled because the nightly tag can change. The same
+    registry query returned A2 `nightly-main` manifest `sha256:7399d0a2b38d8a85d489116afa585e8702a2ba86ff1d5f4570df0b36c38096d3`;
+    its platform/runtime compatibility remains unverified.'
+- title: Host preparation
+  content: Use an Atlas 800I A3 node with 16 visible 64 GB logical devices (8 dual-die NPUs). Confirm driver, CANN,
+    HCCL and container compatibility using the [installation guide](https://docs.vllm.ai/projects/ascend/en/latest/installation.html).
+    Host CPU governor and sysctl tuning in the source are optional administrator actions and are not run by these
+    commands.
+- title: A2 and optional PD hardware
+  content: A2 single-node needs eight 64 GB devices. The 1p1d baseline uses two A3 nodes with 16 logical devices
+    each. The three 1p2d cases preserve source table coverage and require three A3 nodes; they are optional and
+    are not prerequisites for the two-node task. Use the A2 image variant only on A2; its compatibility is also
+    untested. Mount the EAGLE3 checkpoint on every participating node. C8 quantization with EAGLE3 is unsupported
+    in the historical source; these commands use W8A8, not W8A8C8.
+- title: Prepare public PD helpers on each node
+  content: |-
+    The embedded launcher fixes the historical per-process join inside the launch loop and propagates worker failures. It starts all local ranks before polling and bounds cleanup to its own process groups. The proxy is fetched from the same immutable tutorial revision. Its source declares fastapi<0.124.0, httpx, uvicorn and vllm; check the installed environment first. If this check fails, stop and reconcile dependency compatibility with the chosen image; do not blindly upgrade or replace its vLLM installation. These helpers have only been checked on CPU.
+
+    ```bash
+    python -c 'import fastapi, httpx, uvicorn; from packaging.version import Version; assert Version(fastapi.__version__) < Version("0.124.0"), "Historical proxy requires fastapi<0.124.0"; print("Proxy dependencies available")'
+    mkdir -p /workspace/recipe-helpers/examples/external_online_dp /workspace/recipe-helpers/examples/disaggregated_prefill_v1
+    cat > /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py <<'PY'
+    import argparse
+    import os
+    import signal
+    import subprocess
+    import time
+
+    parser = argparse.ArgumentParser()
+    for key in ("dp-size", "tp-size", "dp-size-local", "dp-rank-start", "dp-rpc-port", "vllm-start-port"):
+        parser.add_argument("--" + key, type=int, required=True)
+    parser.add_argument("--dp-address", required=True)
+    args = parser.parse_args()
+    assert args.dp_size_local > 0 and args.tp_size > 0
+    assert args.dp_rank_start + args.dp_size_local <= args.dp_size
+    processes = []
+    def stop(signum, frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        for i in range(args.dp_size_local):
+            devices = ",".join(str(x) for x in range(i * args.tp_size, (i + 1) * args.tp_size))
+            command = ["bash", "./run_dp_template.sh", devices, str(args.vllm_start_port + i),
+                       str(args.dp_size), str(args.dp_rank_start + i), args.dp_address,
+                       str(args.dp_rpc_port), str(args.tp_size)]
+            processes.append(subprocess.Popen(command, start_new_session=True))
+        while True:
+            codes = [process.poll() for process in processes]
+            failure = next((code for code in codes if code not in (None, 0)), None)
+            if failure is not None:
+                raise SystemExit(failure if failure > 0 else 1)
+            if all(code is not None for code in codes):
+                break
+            time.sleep(0.1)
+        codes = [process.wait() for process in processes]
+        raise SystemExit(next((code if code > 0 else 1 for code in codes if code), 0))
+    finally:
+        # Ignore repeated termination while cleaning up only groups created above.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        for process in processes:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        deadline = time.monotonic() + 10
+        for process in processes:
+            try:
+                process.wait(timeout=max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                pass
+        for process in processes:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        for process in processes:
+            if process.poll() is None:
+                process.wait()
+    PY
+    curl --fail --location --output /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+      https://raw.githubusercontent.com/vllm-project/vllm-ascend/5cb98caaadeff42b5b62b996e34bb2aaa29d20fd/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py
+    ```
+env_setup:
+  container:
+    A3:
+      content: |-
+        Run on the Linux Ascend host after downloading weights to `/models`. Map the devices reserved for this deployment. For PD, repeat on every node; the same relative checkpoint paths must exist on all nodes.
+
+        ```bash
+        export IMAGE=quay.io/ascend/vllm-ascend:nightly-main-a3
+        devices=()
+        for i in {0..15}; do devices+=(--device "/dev/davinci$i"); done
+        docker run --rm -it --name ascend-recipe --net=host --ipc=host \
+          "${devices[@]}" \
+          --device /dev/davinci_manager --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+          -v /usr/local/dcmi:/usr/local/dcmi \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /etc/ascend_install.info:/etc/ascend_install.info \
+          -v /models:/models -w /models "$IMAGE" bash
+        ```
+    A2:
+      content: |-
+        Run on the Linux Ascend host after downloading weights to `/models`. Map the devices reserved for this deployment. For PD, repeat on every node; the same relative checkpoint paths must exist on all nodes.
+
+        ```bash
+        export IMAGE=quay.io/ascend/vllm-ascend:nightly-main
+        devices=()
+        for i in {0..7}; do devices+=(--device "/dev/davinci$i"); done
+        docker run --rm -it --name ascend-recipe --net=host --ipc=host \
+          "${devices[@]}" \
+          --device /dev/davinci_manager --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+          -v /usr/local/dcmi:/usr/local/dcmi \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /etc/ascend_install.info:/etc/ascend_install.info \
+          -v /models:/models -w /models "$IMAGE" bash
+        ```
+scenarios:
+- npu: Atlas 800I A3
+  precision: W8A8
+  deployment: Single-Node
+  case: Short Context TP4 DP4 EP
+  tags:
+  - a3-single
+  strategy: single_node_A3
+  steps:
+  - title: Start the server
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export VLLM_ASCEND_BALANCE_SCHEDULING=0
+      vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --served-model-name MiniMax-M2.7 \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --trust-remote-code \
+        --quantization ascend \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --async-scheduling \
+        --additional-config '{"enable_cpu_binding":true,"enable_fused_mc2":true,"enable_flashcomm1":true,"weight_nz_mode":true}' \
+        --enable-expert-parallel \
+        --tensor-parallel-size 4 \
+        --data-parallel-size 4 \
+        --max-num-seqs 48 \
+        --max-model-len 40690 \
+        --max-num-batched-tokens 16384 \
+        --gpu-memory-utilization 0.85 \
+        --speculative-config '{"enforce_eager":true,"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --enable-auto-tool-choice \
+        --tool-call-parser minimax_m2 \
+        --reasoning-parser minimax_m2_append_think
+      ```
+  - title: Check readiness and run inference
+    content: |-
+      Run in a second terminal inside the same container. `/v1/models` checks readiness; the following request must return a non-empty response.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}]}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+  - title: Verify tool calling
+    content: |-
+      Tool-calling check for the single-node service (does not execute a weather API):
+
+      ```bash
+      set -euo pipefail
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","messages":[{"role":"user","content":"请查询上海的天气。"}],"tools":[{"type":"function","function":{"name":"get_current_weather","description":"Get weather by city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}],"tool_choice":"auto","temperature":0,"max_tokens":512}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"][0]["message"]["tool_calls"]' <<<"$response"
+      ```
+- npu: Atlas 800I A3
+  precision: W8A8
+  deployment: Single-Node
+  case: Long Context TP8 PCP2
+  tags:
+  - a3-single
+  strategy: single_node_A3
+  steps:
+  - title: Start the server
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export VLLM_ASCEND_BALANCE_SCHEDULING=0
+      vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --served-model-name MiniMax-M2.7 \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --trust-remote-code \
+        --quantization ascend \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --async-scheduling \
+        --additional-config '{"enable_cpu_binding":true,"enable_fused_mc2":true,"enable_flashcomm1":true,"weight_nz_mode":true}' \
+        --enable-expert-parallel \
+        --tensor-parallel-size 8 \
+        --data-parallel-size 1 \
+        --decode-context-parallel-size 1 \
+        --prefill-context-parallel-size 2 \
+        --cp-kv-cache-interleave-size 128 \
+        --max-num-seqs 16 \
+        --max-model-len 138000 \
+        --max-num-batched-tokens 65536 \
+        --gpu-memory-utilization 0.85 \
+        --speculative-config '{"enforce_eager":true,"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":1}' \
+        --enable-auto-tool-choice \
+        --tool-call-parser minimax_m2 \
+        --reasoning-parser minimax_m2_append_think
+      ```
+  - title: Check readiness and run inference
+    content: |-
+      Run in a second terminal inside the same container. `/v1/models` checks readiness; the following request must return a non-empty response.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}]}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+  - title: Verify tool calling
+    content: |-
+      Tool-calling check for the single-node service (does not execute a weather API):
+
+      ```bash
+      set -euo pipefail
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","messages":[{"role":"user","content":"请查询上海的天气。"}],"tools":[{"type":"function","function":{"name":"get_current_weather","description":"Get weather by city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}],"tool_choice":"auto","temperature":0,"max_tokens":512}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"][0]["message"]["tool_calls"]' <<<"$response"
+      ```
+- npu: Atlas 800I A2
+  precision: W8A8
+  deployment: Single-Node
+  case: TP8 EP
+  tags:
+  - a2-single
+  strategy: single_node_A2
+  steps:
+  - title: Start the server
+    content: |-
+      ```bash
+      cd /models
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=512
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_INTRA_PCIE_ENABLE=1
+      export HCCL_INTRA_ROCE_ENABLE=0
+      export OMP_PROC_BIND=false
+      vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --served-model-name MiniMax-M2.7 \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --trust-remote-code \
+        --tensor-parallel-size 8 \
+        --quantization ascend \
+        --enable-expert-parallel \
+        --max-num-seqs 32 \
+        --seed 1024 \
+        --max-num-batched-tokens 32768 \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --gpu-memory-utilization 0.85 \
+        --additional-config '{"enable_cpu_binding":true,"enable_flashcomm1":true}' \
+        --model-loader-extra-config '{"enable_multithread_load":true,"num_threads":16}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --enable-auto-tool-choice \
+        --tool-call-parser minimax_m2 \
+        --reasoning-parser minimax_m2_append_think
+      ```
+  - title: Check readiness and run inference
+    content: |-
+      Run in a second terminal inside the same container. `/v1/models` checks readiness; the following request must return a non-empty response.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:8000/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"Say hi in one word."}]}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+  - title: Verify tool calling
+    content: |-
+      Tool-calling check for the single-node service (does not execute a weather API):
+
+      ```bash
+      set -euo pipefail
+      response=$(curl --fail --silent --show-error http://127.0.0.1:8000/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"MiniMax-M2.7","messages":[{"role":"user","content":"请查询上海的天气。"}],"tools":[{"type":"function","function":{"name":"get_current_weather","description":"Get weather by city","parameters":{"type":"object","properties":{"city":{"type":"string"},"unit":{"type":"string","enum":["celsius","fahrenheit"]}},"required":["city"]}}}],"tool_choice":"auto","temperature":0,"max_tokens":512}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"][0]["message"]["tool_calls"]' <<<"$response"
+      ```
+- test_id: minimax-long-1p1d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: Multi-Node PD Separation
+  case: long-1p1d
+  npu_per_node: 16
+  steps:
+  - title: Topology and communication
+    content: |-
+      Two A3 nodes; the complete long-context 1p1d executable baseline in source section 5.2. Prefill uses EAGLE3=1 and eager execution, Decode EAGLE3=3 and graph mode.
+
+      Set these values in every node terminal. Check HCCL/RDMA connectivity first. `IFACE_NAME` must be the fabric interface; Decode nodes share Decode node 0 as their DP master.
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 64 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --enforce-eager \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":1}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":2,"tp_size":8}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 2 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=0
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 16 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --no-enable-prefix-caching \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":2,"tp_size":8}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 2 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      From the gateway, check every rank before starting the proxy. This proves readiness only.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      After every rank endpoint is ready, run on the gateway node:
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" --decoder-ports 7100 7101
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+- test_id: minimax-short-throughput-1p2d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: Multi-Node PD Separation
+  case: short-throughput-1p2d
+  npu_per_node: 16
+  steps:
+  - title: Topology and communication
+    content: |-
+      Optional three-node source table scenario. DP/TP/sequence/context/EAGLE3 values come from source section 9.1; the remaining launch settings reuse section 5.2. This combination is an untested expansion of the table, not a complete source-verified command. The third node is not required for the two-node task.
+
+      Set these values in every node terminal. Check HCCL/RDMA connectivity first. `IFACE_NAME` must be the fabric interface; Decode nodes share Decode node 0 as their DP master.
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export DECODE_NODE_1_IP="<second-decode-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":8,"tp_size":2},"decode":{"dp_size":32,"tp_size":1}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 8 --tp-size 2 --dp-size-local 8 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":8,"tp_size":2},"decode":{"dp_size":32,"tp_size":1}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 32 --tp-size 1 --dp-size-local 16 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: decode-1-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_1_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":8,"tp_size":2},"decode":{"dp_size":32,"tp_size":1}}}'
+      BASH
+      ```
+  - title: decode-1-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 32 --tp-size 1 --dp-size-local 16 --dp-rank-start 16 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      From the gateway, check every rank before starting the proxy. This proves readiness only.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7002/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7003/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7004/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7005/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7006/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7007/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7103/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7104/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7105/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7106/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7107/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7108/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7109/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7110/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7111/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7112/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7113/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7114/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7115/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7103/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7104/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7105/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7106/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7107/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7108/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7109/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7110/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7111/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7112/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7113/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7114/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7115/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      After every rank endpoint is ready, run on the gateway node:
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 7002 7003 7004 7005 7006 7007 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" --decoder-ports 7100 7101 7102 7103 7104 7105 7106 7107 7108 7109 7110 7111 7112 7113 7114 7115 7100 7101 7102 7103 7104 7105 7106 7107 7108 7109 7110 7111 7112 7113 7114 7115
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+- test_id: minimax-short-latency-1p2d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: Multi-Node PD Separation
+  case: short-latency-1p2d
+  npu_per_node: 16
+  steps:
+  - title: Topology and communication
+    content: |-
+      Optional three-node source table scenario. DP/TP/sequence/context/EAGLE3 values come from source section 9.1; the remaining launch settings reuse section 5.2. This combination is an untested expansion of the table, not a complete source-verified command. The third node is not required for the two-node task.
+
+      Set these values in every node terminal. Check HCCL/RDMA connectivity first. `IFACE_NAME` must be the fabric interface; Decode nodes share Decode node 0 as their DP master.
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export DECODE_NODE_1_IP="<second-decode-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":4,"tp_size":4},"decode":{"dp_size":8,"tp_size":4}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 4 --tp-size 4 --dp-size-local 4 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":4,"tp_size":4},"decode":{"dp_size":8,"tp_size":4}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 8 --tp-size 4 --dp-size-local 4 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: decode-1-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_1_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 32768 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 128 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":4,"tp_size":4},"decode":{"dp_size":8,"tp_size":4}}}'
+      BASH
+      ```
+  - title: decode-1-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 8 --tp-size 4 --dp-size-local 4 --dp-rank-start 4 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      From the gateway, check every rank before starting the proxy. This proves readiness only.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7002/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7003/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7103/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7102/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7103/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      After every rank endpoint is ready, run on the gateway node:
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 7002 7003 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" --decoder-ports 7100 7101 7102 7103 7100 7101 7102 7103
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+- test_id: minimax-long-latency-1p2d
+  npu: Atlas 800I A3
+  precision: W8A8
+  deployment: Multi-Node PD Separation
+  case: long-latency-1p2d
+  npu_per_node: 16
+  steps:
+  - title: Topology and communication
+    content: |-
+      Optional three-node source table scenario. DP/TP/sequence/context/EAGLE3 values come from source section 9.1; the remaining launch settings reuse section 5.2. This combination is an untested expansion of the table, not a complete source-verified command. The third node is not required for the two-node task.
+
+      Set these values in every node terminal. Check HCCL/RDMA connectivity first. `IFACE_NAME` must be the fabric interface; Decode nodes share Decode node 0 as their DP master.
+
+      ```bash
+      export PREFILL_NODE_0_IP="<prefill-ip>"
+      export DECODE_NODE_0_IP="<decode-master-ip>"
+      export DECODE_NODE_1_IP="<second-decode-ip>"
+      export GATEWAY_NODE_0_IP="$PREFILL_NODE_0_IP"
+      export IFACE_NAME="<fabric-interface>"
+      ```
+  - title: prefill-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=1024
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${PREFILL_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 64 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_producer","kv_port":"35880","engine_id":"0","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":4,"tp_size":8}}}'
+      BASH
+      ```
+  - title: prefill-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 2 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$PREFILL_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7000
+      ```
+  - title: decode-0-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_0_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 16 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":4,"tp_size":8}}}'
+      BASH
+      ```
+  - title: decode-0-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 4 --tp-size 8 --dp-size-local 2 --dp-rank-start 0 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: decode-1-template
+    content: |-
+      On this role/node, save the following complete script as `/models/run_dp_template.sh`. Use separate nodes for different roles.
+
+      ```bash
+      cat > /models/run_dp_template.sh <<'BASH'
+      #!/usr/bin/env bash
+      set -euo pipefail
+      unset http_proxy https_proxy ftp_proxy
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export HCCL_BUFFSIZE=2048
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export OMP_NUM_THREADS=1
+      export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2:${LD_PRELOAD:-}
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_IF_IP=${DECODE_NODE_1_IP}
+      export GLOO_SOCKET_IFNAME=${IFACE_NAME}
+      export TP_SOCKET_IFNAME=${IFACE_NAME}
+      export HCCL_SOCKET_IFNAME=${IFACE_NAME}
+      export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/python/site-packages/mooncake:${LD_LIBRARY_PATH:-}
+      export VLLM_ASCEND_ENABLE_FLASHCOMM1=1
+      export VLLM_ASCEND_ENABLE_FUSED_MC2=1
+      export PYTHONHASHSEED=0
+      export ASCEND_RT_VISIBLE_DEVICES=$1
+      cd /models
+      exec vllm serve vllm-ascend/MiniMax-M2.7-w8a8-QuaRot \
+        --host 0.0.0.0 \
+        --port $2 \
+        --data-parallel-size $3 \
+        --data-parallel-rank $4 \
+        --data-parallel-address $5 \
+        --data-parallel-rpc-port $6 \
+        --tensor-parallel-size $7 \
+        --enable-expert-parallel \
+        --served-model-name minimax \
+        --max-model-len 200000 \
+        --max-num-batched-tokens 16384 \
+        --max-num-seqs 16 \
+        --trust-remote-code \
+        --gpu-memory-utilization 0.75 \
+        --quantization ascend \
+        --async-scheduling \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --speculative-config '{"method":"eagle3","model":"/models/Eco-Tech/MiniMax-M2.7-eagle-model-short","num_speculative_tokens":3}' \
+        --additional-config '{"enable_cpu_binding":true}' \
+        --kv-transfer-config '{"kv_connector":"MooncakeConnectorV1","kv_role":"kv_consumer","kv_port":"56900","engine_id":"1","kv_connector_extra_config":{"use_ascend_direct":true,"prefill":{"dp_size":2,"tp_size":8},"decode":{"dp_size":4,"tp_size":8}}}'
+      BASH
+      ```
+  - title: decode-1-launch
+    content: |-
+      Start this launcher on the corresponding node in its own terminal. Leave it running while starting the other nodes.
+
+      ```bash
+      cd /models
+      python /workspace/recipe-helpers/examples/external_online_dp/launch_online_dp.py \
+        --dp-size 4 --tp-size 8 --dp-size-local 2 --dp-rank-start 2 \
+        --dp-address "$DECODE_NODE_0_IP" --dp-rpc-port 12321 --vllm-start-port 7100
+      ```
+  - title: backend-readiness
+    content: |-
+      From the gateway, check every rank before starting the proxy. This proves readiness only.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7000/v1/models"
+      curl --fail --silent --show-error "http://${PREFILL_NODE_0_IP}:7001/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_0_IP}:7101/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7100/v1/models"
+      curl --fail --silent --show-error "http://${DECODE_NODE_1_IP}:7101/v1/models"
+      ```
+  - title: gateway-0
+    content: |-
+      After every rank endpoint is ready, run on the gateway node:
+
+      ```bash
+      python /workspace/recipe-helpers/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py \
+        --host "$GATEWAY_NODE_0_IP" --port 8009 \
+        --prefiller-hosts "$PREFILL_NODE_0_IP" "$PREFILL_NODE_0_IP" --prefiller-ports 7000 7001 \
+        --decoder-hosts "$DECODE_NODE_0_IP" "$DECODE_NODE_0_IP" "$DECODE_NODE_1_IP" "$DECODE_NODE_1_IP" --decoder-ports 7100 7101 7100 7101
+      ```
+  - title: service-check
+    content: |-
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; assert r["choices"][0]["text"].strip()' <<<"$response"
+      ```
+performance:
+  accuracy: Not measured. Follow [AISBench accuracy evaluation](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html)
+    with a recorded dataset revision, generation settings and checkpoint revision. A smoke response is not accuracy
+    evidence.
+  benchmark: |-
+    Not measured. Use [vLLM benchmarking](https://docs.vllm.ai/en/latest/benchmarking/) or [AISBench performance evaluation](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html#execute-performance-evaluation). Save request count, successful count, input/output lengths, concurrency, TTFT, TPOT and throughput separately from readiness evidence.
+
+    Source lightweight text benchmark for the single-node service; retain separate result files and inspect successful request counts:
+
+    ```bash
+    vllm bench serve \
+      --backend openai-chat --base-url http://127.0.0.1:8000 --endpoint /v1/chat/completions \
+      --model /models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot --served-model-name MiniMax-M2.7 \
+      --dataset-name random --random-input-len 200 --num-prompts 200 --request-rate 1 \
+      --save-result --result-dir ./minimax-benchmark-results
+    ```
+references:
+- title: Pinned tutorial baseline
+  url: https://github.com/vllm-project/vllm-ascend/blob/5cb98caaadeff42b5b62b996e34bb2aaa29d20fd/docs/source/tutorials/models/MiniMax-M2.md
+- title: Current upstream tutorial / support status
+  url: https://github.com/vllm-project/vllm-ascend/blob/128f35ed1461ecb34bc8b87583a67a66bc4bd1d6/docs/source/tutorials/models/MiniMax-M2.md
+- title: Official model card
+  url: https://huggingface.co/MiniMaxAI/MiniMax-M2.7
+- title: Public image registry
+  url: https://quay.io/repository/ascend/vllm-ascend?tab=tags
+- title: Upstream MiniMax metadata (230B / 10B)
+  url: https://github.com/vllm-project/recipes/blob/9882c1c7994c78093a85f35f3534f691a698785c/models/MiniMaxAI/MiniMax-M2.7.yaml
+- title: W8A8 QuaRot config
+  url: https://modelscope.cn/models/vllm-ascend/MiniMax-M2.7-w8a8-QuaRot/files
+- title: EAGLE3
+  url: https://modelscope.cn/models/Eco-Tech/MiniMax-M2.7-eagle-model-short
+verification: Single-node requests use `MiniMax-M2.7` on port 8000. PD uses the source alias `minimax` on proxy
+  port 8009; do not reuse the single-node alias at the proxy. The steps check readiness and perform actual inference
+  separately. To test tool calling, all single-node launch commands include the tutorial’s optional minimax_m2 parsers.
+  `minimax_m2_append_think` retains thinking text in content; use minimax_m2 instead if your application needs a
+  separate reasoning field.
+tuning: 'Source section 5.1: A3 short=TP4 DP4, 40690 context, 48 sequences, 16384 batched tokens; long=TP8 DP1 PCP2,
+  138000 context, 16 sequences, 65536 batched tokens. A2=TP8, 32 sequences, 32768 batched tokens; max-model-len
+  is intentionally omitted as in the source. The quantized config declares 204800 maximum positions; the upstream
+  base recipe’s 196608 value is not substituted. Section 9.1 uses 32k/200k table contexts, expanded here to 32768/200000;
+  the short source executable remains 40690. Long PD tests assume 90% prefix hit, short PD tests 0%; those are workload
+  conditions, not measured results. The source 1p1d table says EAGLE3=3 but executable Prefill uses 1; the executable
+  wins. `--speculative_config` is normalized to the canonical hyphenated spelling without changing its JSON. The
+  weight-only 276 GB estimate excludes EAGLE3, KV and runtime.'
+faq: |-
+  The current converter CLI does not register this recipe. Its generated PD template assumes TP1 device-index input and its multi-Decode launchers use a node-local DP address; these are incompatible with the source TP2/4/8 device lists and shared Decode DP master. Use the complete embedded direct launch scripts above. Do not interpret a schema pass as an executable generated-plan or hardware pass.
+
+  The Cluster env panel describes the default two-node 1p1d topology and cannot express a different Decode node count per scenario. For optional 1p2d, use the explicit three-node exports and numbered steps, including DECODE_NODE_1_IP; the panel is not a complete three-node configuration.

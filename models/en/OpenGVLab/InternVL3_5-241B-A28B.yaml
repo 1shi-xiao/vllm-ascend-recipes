@@ -1,0 +1,180 @@
+meta:
+  title: InternVL3_5-241B-A28B
+  slug: internvl3-5-241b-a28b
+  provider: OpenGVLab
+  description: InternVL3_5-241B-A28B deployment on Ascend with public checkpoint paths and experimental tutorial
+    baselines.
+  date_added: '2026-10-20'
+  difficulty: advanced
+  hardware:
+    atlas_800_a3: experimental
+model:
+  model_id: OpenGVLab/InternVL3_5-241B-A28B
+  architecture: moe
+  parameter_count: 240.7B
+  active_parameters: 28B
+  context_length: 40960
+  modality: multimodal
+  base_args:
+  - --trust-remote-code
+  - --served-model-name
+  - internvl3_5
+  - --tensor-parallel-size
+  - '4'
+  - --data-parallel-size
+  - '2'
+  - --enable-expert-parallel
+  base_env:
+    PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+    TASK_QUEUE_ENABLE: '1'
+    HCCL_OP_EXPANSION_MODE: AIV
+    OMP_PROC_BIND: 'false'
+    OMP_NUM_THREADS: '1'
+    VLLM_USE_V1: '1'
+    VLLM_TORCH_PROFILER_WITH_STACK: '0'
+    HCCL_BUFFSIZE: '1536'
+  docker_image:
+    atlas_800_a3: quay.io/ascend/vllm-ascend:nightly-main-a3
+  nightly_required: true
+  install:
+    pip: false
+    docker:
+      command: docker pull quay.io/ascend/vllm-ascend:nightly-main-a3
+      note: All listed hardware configurations are experimental here. No startup, inference, accuracy or performance
+        result has been measured for this migration. The mutable nightly image is a current validation candidate,
+        not a compatibility guarantee. Record its repository digest and package versions before running.
+variants:
+  default:
+    precision: W8A8
+    description: Tutorial checkpoint; runtime validation pending.
+    model_id: Eco-Tech/InternVL3_5-241B-A28B-w8a8
+    vram_minimum_gb: 289
+compatible_strategies:
+- single_node_A3
+hardware_overrides: {}
+strategy_overrides: {}
+guide: ''
+overview: InternVL3_5-241B-A28B combines an InternViT vision encoder with a Qwen3 language model for image understanding
+  and multimodal dialogue. The language backbone is a sparse MoE; the checkpoint has 240.7B total and about 28B
+  active parameters.
+weight_download:
+- weight_version: W8A8
+  sources:
+  - source: ModelScope
+    url: https://modelscope.cn/models/Eco-Tech/InternVL3_5-241B-A28B-w8a8
+    command: |-
+      ```bash
+      pip install modelscope
+      modelscope download --model Eco-Tech/InternVL3_5-241B-A28B-w8a8 --local_dir /models/Eco-Tech/InternVL3_5-241B-A28B-w8a8
+      ```
+prerequisites:
+- title: Validation boundary and provenance
+  content: All listed hardware configurations are experimental here. No startup, inference, accuracy or performance
+    result has been measured for this migration. The mutable nightly image is a current validation candidate, not
+    a compatibility guarantee. Record its repository digest and package versions before running.
+- title: Dated image provenance
+  content: 'Registry observed on 2026-10-20: `nightly-main-a3` manifest digest `sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`;
+    Linux arm64 platform manifest `sha256:e80e4a75f03562853a503546d3d8ea1e96193fa532b5e30c5ba7f0680f73f1c9`, image
+    created 2026-10-20T00:33:33Z. This is registry provenance only; no layers were downloaded or runtime verified.
+    To freeze the candidate, replace the IMAGE value below with `quay.io/ascend/vllm-ascend@sha256:c32749b08b289227e1aea7b99caf669cae63deb60d57ecac23d098b3e169d839`
+    before starting the container. Record the digest actually pulled because the nightly tag can change.'
+- title: Host preparation
+  content: Use an Atlas 800I A3 node with 16 visible 64 GB logical devices (8 dual-die NPUs). Confirm driver, CANN,
+    HCCL and container compatibility using the [installation guide](https://docs.vllm.ai/projects/ascend/en/latest/installation.html).
+    Host CPU governor and sysctl tuning in the source are optional administrator actions and are not run by these
+    commands.
+env_setup:
+  container:
+    A3:
+      content: |-
+        Run on the Linux Ascend host after downloading weights to `/models`. Map the devices reserved for this deployment. For PD, repeat on every node; the same relative checkpoint paths must exist on all nodes.
+
+        ```bash
+        export IMAGE=quay.io/ascend/vllm-ascend:nightly-main-a3
+        devices=()
+        for i in {0..15}; do devices+=(--device "/dev/davinci$i"); done
+        docker run --rm -it --name ascend-recipe --net=host --ipc=host \
+          "${devices[@]}" \
+          --device /dev/davinci_manager --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver \
+          -v /usr/local/dcmi:/usr/local/dcmi \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /etc/ascend_install.info:/etc/ascend_install.info \
+          -v /models:/models -w /models "$IMAGE" bash
+        ```
+scenarios:
+- npu: Atlas 800I A3
+  precision: W8A8
+  deployment: Single-Node
+  case: TP4 DP2 EP
+  tags:
+  - a3-single
+  strategy: single_node_A3
+  steps:
+  - title: Start the server
+    content: |-
+      ```bash
+      cd /models
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+      export TASK_QUEUE_ENABLE=1
+      export HCCL_OP_EXPANSION_MODE=AIV
+      export OMP_PROC_BIND=false
+      export OMP_NUM_THREADS=1
+      export VLLM_USE_V1=1
+      export VLLM_TORCH_PROFILER_WITH_STACK=0
+      export HCCL_BUFFSIZE=1536
+      export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+      vllm serve Eco-Tech/InternVL3_5-241B-A28B-w8a8 \
+        --port 2001 \
+        --served-model-name internvl3_5 \
+        --trust-remote-code \
+        --max-model-len 40960 \
+        --max-num-batched-tokens 4096 \
+        --tensor-parallel-size 4 \
+        --data-parallel-size 2 \
+        --max-num-seqs 70 \
+        --gpu-memory-utilization 0.9 \
+        --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+        --additional-config '{"enable_weight_nz_layout":true,"enable_cpu_binding":true,"enable_fused_mc2":1}'  \
+        --mm-processor-cache-gb 0 \
+        --enable-chunked-prefill \
+        --enable-expert-parallel \
+        --safetensors-load-strategy prefetch \
+        --allowed-local-media-path /
+      ```
+  - title: Check readiness and run inference
+    content: |-
+      Run in a second terminal inside the same container. `/v1/models` checks readiness; the following request must return a non-empty response.
+
+      ```bash
+      set -euo pipefail
+      curl --fail --silent --show-error http://127.0.0.1:2001/v1/models
+      response=$(curl --fail --silent --show-error http://127.0.0.1:2001/v1/chat/completions \
+        -H 'Content-Type: application/json' \
+        -d '{"model":"internvl3_5","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://modelscope.oss-cn-beijing.aliyuncs.com/resource/tiger.jpeg"}},{"type":"text","text":"What is the text in the illustration?"}]}]}')
+      python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["choices"]; m=r["choices"][0]["message"]; assert m.get("content") or m.get("tool_calls")' <<<"$response"
+      ```
+performance:
+  accuracy: Not measured. Follow [AISBench accuracy evaluation](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html)
+    with a recorded dataset revision, generation settings and checkpoint revision. A smoke response is not accuracy
+    evidence.
+  benchmark: Not measured. Use [vLLM benchmarking](https://docs.vllm.ai/en/latest/benchmarking/) or [AISBench performance
+    evaluation](https://docs.vllm.ai/projects/ascend/en/v0.23.0/developer_guide/evaluation/using_ais_bench.html#execute-performance-evaluation).
+    Save request count, successful count, input/output lengths, concurrency, TTFT, TPOT and throughput separately
+    from readiness evidence.
+references:
+- title: Pinned tutorial baseline
+  url: https://github.com/vllm-project/vllm-ascend/blob/128f35ed1461ecb34bc8b87583a67a66bc4bd1d6/docs/source/tutorials/models/InternVL3.5.md
+- title: Current upstream tutorial / support status
+  url: https://github.com/vllm-project/vllm-ascend/blob/128f35ed1461ecb34bc8b87583a67a66bc4bd1d6/docs/source/tutorials/models/InternVL3.5.md
+- title: Official model card
+  url: https://huggingface.co/OpenGVLab/InternVL3_5-241B-A28B
+- title: Public image registry
+  url: https://quay.io/repository/ascend/vllm-ascend?tab=tags
+tuning: 'The executable baseline follows pinned main, not the inconsistent summary table: 40960 context tokens,
+  TP4 × DP2 = 8 logical devices and 70 sequences. The source summary table lists conflicting device counts and,
+  for 38B, 135000 context tokens. Those values are not used. The source request incorrectly targets port 8000; this
+  recipe uses the actual serve port. Current main moved fused MC2 into additional-config and removed legacy FlashComm/async
+  flags; those current commands are retained. Local-media access to `/` follows the source; restrict it for shared
+  services. Weight-only VRAM estimates omit KV cache, runtime and mixed-precision vision overhead; measure actual
+  allocation.'
