@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 from pathlib import Path
 import re
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -105,6 +110,78 @@ class EmbeddedLauncherTests(unittest.TestCase):
             self.assertNotIn("scripts", en, "TP>1 public commands must not imply converter support")
             self.assertEqual([fences(s["content"]) for s in en["steps"]],
                              [fences(s["content"]) for s in zh["steps"]])
+
+
+class GatewayServiceCheckTests(unittest.TestCase):
+    """Exercise checks against the pinned proxy's health/completion route contract.
+
+    Official source revision: 5cb98caaadeff42b5b62b996e34bb2aaa29d20fd
+    examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py
+    Git blob: bdc53a3e48aa4068f6af1a14369c76508804b10c
+    The proxy exposes GET /healthcheck and POST /v1/completions, without a
+    GET /v1/models route. Backend vLLM instances expose /v1/models separately.
+    """
+
+    def exercise_checks(self, *, completion_choices):
+        requests = []
+
+        class ProxyFixture(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def respond(self, code, body):
+                encoded = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_GET(self):
+                requests.append(("GET", self.path))
+                self.respond(200 if self.path == "/healthcheck" else 404, {})
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                requests.append(("POST", self.path))
+                valid = self.path == "/v1/completions" and body.get("model") == "minimax" and body.get("prompt")
+                self.respond(200 if valid else 404, {"choices": completion_choices})
+
+        bash = shutil.which("bash")
+        if os.name == "nt" and (git := shutil.which("git")):
+            git_bash = Path(git).resolve().parents[1] / "bin/bash.exe"
+            if git_bash.is_file():
+                bash = str(git_bash)
+        self.assertIsNotNone(bash, "a Bash interpreter is required for the public shell check")
+        environment = {**os.environ, "GATEWAY_NODE_0_IP": "127.0.0.1", "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}
+        with ThreadingHTTPServer(("127.0.0.1", 0), ProxyFixture) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                recipe = yaml.safe_load(RECIPE.read_text(encoding="utf-8"))
+                scenarios = [s for s in recipe["scenarios"] if s.get("test_id")]
+                self.assertEqual(len(scenarios), 4)
+                for scenario in scenarios:
+                    with self.subTest(test_id=scenario["test_id"]):
+                        content = next(s["content"] for s in scenario["steps"] if s["title"] == "service-check")
+                        script = re.search(r"```bash\n(.*?)\n```", content, re.S)[1]
+                        script = script.replace(":8009/", f":{server.server_port}/")
+                        script = script.replace("python3 -c", shlex.quote(sys.executable.replace("\\", "/")) + " -c")
+                        start = len(requests)
+                        result = subprocess.run([bash, "--noprofile", "--norc", "-s"],
+                                                input=script, text=True, encoding="utf-8",
+                                                capture_output=True, env=environment, timeout=15)
+                        self.assertEqual(requests[start:], [("GET", "/healthcheck"), ("POST", "/v1/completions")], result.stderr)
+                        self.assertEqual(result.returncode == 0, bool(completion_choices), result.stderr)
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
+
+    def test_healthy_gateway_reaches_inference_for_every_pd_case(self):
+        self.exercise_checks(completion_choices=[{"text": "Hello"}])
+
+    def test_readiness_alone_cannot_pass_without_a_completion(self):
+        self.exercise_checks(completion_choices=[])
 
 
 if __name__ == "__main__":

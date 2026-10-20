@@ -543,7 +543,7 @@ scenarios:
     content: |-
       ```bash
       set -euo pipefail
-      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/healthcheck
       response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
         -H 'Content-Type: application/json' \
         -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
@@ -804,7 +804,7 @@ scenarios:
     content: |-
       ```bash
       set -euo pipefail
-      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/healthcheck
       response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
         -H 'Content-Type: application/json' \
         -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
@@ -1037,7 +1037,7 @@ scenarios:
     content: |-
       ```bash
       set -euo pipefail
-      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/healthcheck
       response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
         -H 'Content-Type: application/json' \
         -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
@@ -1264,7 +1264,7 @@ scenarios:
     content: |-
       ```bash
       set -euo pipefail
-      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/models
+      curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/healthcheck
       response=$(curl --fail --silent --show-error http://${GATEWAY_NODE_0_IP}:8009/v1/completions \
         -H 'Content-Type: application/json' \
         -d '{"model":"minimax","max_tokens":64,"temperature":0,"prompt":"The future of AI is"}')
